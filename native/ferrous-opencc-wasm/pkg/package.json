@@ -1,0 +1,7 @@
+﻿{
+  "name": "ferrous-opencc-wasm-stub",
+  "type": "module",
+  "main": "index.ts",
+  "module": "index.ts",
+  "types": "index.ts"
+}

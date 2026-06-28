@@ -1,0 +1,17 @@
+﻿node_modules/
+dist/
+out/
+build/
+release/
+.turbo/
+.cache/
+.vitepress/cache/
+.env
+.env.*
+!.env.example
+*.log
+*.bak-*
+*.zip
+*.tar
+*.tar.gz
+.DS_Store
