@@ -116,11 +116,15 @@ const updatePlaceholder = async () => {
   }
   try {
     const result = await searchDefault();
-    searchPlaceholder.value = result.data.showKeyword;
-    searchRealkeyword.value = result.data.realkeyword;
+    const data = result?.data;
+    const showKeyword = typeof data?.showKeyword === "string" ? data.showKeyword : "";
+    const realkeyword = typeof data?.realkeyword === "string" ? data.realkeyword : "";
+    searchPlaceholder.value = showKeyword || realkeyword || "搜索音乐 / 视频";
+    searchRealkeyword.value = realkeyword || showKeyword || "";
   } catch (error) {
     console.error("搜索关键词获取失败：", error);
     searchPlaceholder.value = "搜索音乐 / 视频";
+    searchRealkeyword.value = "";
   }
 };
 

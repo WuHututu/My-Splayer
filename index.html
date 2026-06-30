@@ -5,13 +5,192 @@
     <script>
       (function () {
         var noop = function () {};
+        var storeKey = "__splayer_web_store_fallback__";
+        var defaultStore = {
+          window: {
+            width: 1200,
+            height: 800,
+            maximized: false,
+            zoomFactor: 1,
+            useBorderless: true
+          },
+          lyric: {
+            width: 700,
+            height: 86,
+            x: 0,
+            y: 0,
+            config: {}
+          },
+          websocket: {
+            enabled: false,
+            port: 25885
+          },
+          cachePath: "",
+          cacheLimit: 10,
+          amllDbServer: ""
+        };
+
+        function clone(value) {
+          return JSON.parse(JSON.stringify(value));
+        }
+
+        function readStore() {
+          try {
+            var raw = window.localStorage && window.localStorage.getItem(storeKey);
+            var saved = raw ? JSON.parse(raw) : {};
+            return Object.assign(clone(defaultStore), saved && typeof saved === "object" ? saved : {});
+          } catch (error) {
+            console.warn("[UnblockPatch] store fallback read failed", error);
+            return clone(defaultStore);
+          }
+        }
+
+        function writeStore(data) {
+          try {
+            window.localStorage && window.localStorage.setItem(storeKey, JSON.stringify(data));
+          } catch (error) {
+            console.warn("[UnblockPatch] store fallback write failed", error);
+          }
+        }
+
+        function getByPath(data, key) {
+          if (!key) return data;
+          if (Object.prototype.hasOwnProperty.call(data, key)) return data[key];
+          var parts = String(key).split(".");
+          var current = data;
+          for (var i = 0; i < parts.length; i++) {
+            if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, parts[i])) {
+              return undefined;
+            }
+            current = current[parts[i]];
+          }
+          return current;
+        }
+
+        function setByPath(data, key, value) {
+          if (!key) return;
+          var parts = String(key).split(".");
+          var current = data;
+          for (var i = 0; i < parts.length - 1; i++) {
+            var part = parts[i];
+            if (!current[part] || typeof current[part] !== "object") current[part] = {};
+            current = current[part];
+          }
+          current[parts[parts.length - 1]] = value;
+        }
+
+        function deleteByPath(data, key) {
+          if (!key) return;
+          if (Object.prototype.hasOwnProperty.call(data, key)) {
+            delete data[key];
+            return;
+          }
+          var parts = String(key).split(".");
+          var current = data;
+          for (var i = 0; i < parts.length - 1; i++) {
+            current = current && current[parts[i]];
+            if (!current || typeof current !== "object") return;
+          }
+          delete current[parts[parts.length - 1]];
+        }
+
+        function unsupported(message) {
+          return { success: false, message: message || "Current environment does not support this feature" };
+        }
+
+        window.api = window.api || {};
+        if (!window.api.store) {
+          window.api.store = {
+            get: function (key) {
+              return Promise.resolve(getByPath(readStore(), key));
+            },
+            set: function (key, value) {
+              var data = readStore();
+              setByPath(data, key, value);
+              writeStore(data);
+              return Promise.resolve(true);
+            },
+            has: function (key) {
+              return Promise.resolve(typeof getByPath(readStore(), key) !== "undefined");
+            },
+            delete: function (key) {
+              var data = readStore();
+              deleteByPath(data, key);
+              writeStore(data);
+              return Promise.resolve(true);
+            },
+            reset: function (keys) {
+              var data = readStore();
+              if (Array.isArray(keys) && keys.length) {
+                keys.forEach(function (key) {
+                  deleteByPath(data, key);
+                });
+              } else {
+                data = clone(defaultStore);
+              }
+              writeStore(data);
+              return Promise.resolve(true);
+            },
+            export: function () {
+              return Promise.resolve(unsupported("Config export is unavailable in this environment"));
+            },
+            import: function () {
+              return Promise.resolve(unsupported("Config import is unavailable in this environment"));
+            }
+          };
+        }
+
+        window.logger = window.logger || {
+          debug: noop,
+          info: noop,
+          warn: console.warn ? console.warn.bind(console) : noop,
+          error: console.error ? console.error.bind(console) : noop
+        };
+
+        function fallbackInvoke(channel) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          console.log("[UnblockPatch]", channel);
+          switch (channel) {
+            case "store-get":
+              return window.api.store.get(args[0]);
+            case "store-set":
+              return window.api.store.set(args[0], args[1]);
+            case "store-has":
+              return window.api.store.has(args[0]);
+            case "store-delete":
+              return window.api.store.delete(args[0]);
+            case "cache-get":
+            case "cache-put":
+            case "cache-remove":
+            case "cache-clear":
+            case "cache-clear-all":
+            case "music-cache-download":
+              return Promise.resolve(unsupported("Local cache is unavailable in this environment"));
+            case "cache-list":
+              return Promise.resolve({ success: true, data: [] });
+            case "cache-size":
+              return Promise.resolve({ success: true, data: 0 });
+            case "music-cache-check":
+              return Promise.resolve(null);
+            case "desktop-lyric:get-option":
+            case "taskbar:get-option":
+              return Promise.resolve({});
+            case "register-all-shortcut":
+            case "unregister-all-shortcut":
+              return Promise.resolve(true);
+            case "get-zoom-factor":
+              return Promise.resolve(1);
+            case "win-state":
+              return Promise.resolve(false);
+            default:
+              return Promise.resolve(null);
+          }
+        }
+
         window.electron = window.electron || {};
         if (!window.electron.ipcRenderer) {
           window.electron.ipcRenderer = {
-            invoke: function (channel) {
-              console.log("[UnblockPatch]", channel);
-              return Promise.resolve(null);
-            },
+            invoke: fallbackInvoke,
             on: noop,
             removeAllListeners: noop,
             send: noop,
@@ -29,6 +208,7 @@
           ipc.removeListener = ipc.removeListener || noop;
           ipc.once = ipc.once || noop;
           ipc.addListener = ipc.addListener || noop;
+          ipc.invoke = ipc.invoke || fallbackInvoke;
         }
       })();
     </script>
