@@ -1,15 +1,46 @@
 <!doctype html>
 <html>
   <head>
+    <!-- SPlayer Web bridge fallback for browsers; Android injects a real bridge before this. -->
+    <script>
+      (function () {
+        var noop = function () {};
+        window.electron = window.electron || {};
+        if (!window.electron.ipcRenderer) {
+          window.electron.ipcRenderer = {
+            invoke: function (channel) {
+              console.log("[UnblockPatch]", channel);
+              return Promise.resolve(null);
+            },
+            on: noop,
+            removeAllListeners: noop,
+            send: noop,
+            sendSync: function () { return null; },
+            removeListener: noop,
+            once: noop,
+            addListener: noop
+          };
+        } else {
+          var ipc = window.electron.ipcRenderer;
+          ipc.on = ipc.on || noop;
+          ipc.removeAllListeners = ipc.removeAllListeners || noop;
+          ipc.send = ipc.send || noop;
+          ipc.sendSync = ipc.sendSync || function () { return null; };
+          ipc.removeListener = ipc.removeListener || noop;
+          ipc.once = ipc.once || noop;
+          ipc.addListener = ipc.addListener || noop;
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/icon" href="/icons/favicon.ico" />
+    <link rel="icon" type="image/icon" href="./icons/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>SPlayer</title>
     <!-- font -->
-    <link rel="stylesheet" href="/fonts/font.css" />
+    <link rel="stylesheet" href="./fonts/font.css" />
   </head>
 
   <body>

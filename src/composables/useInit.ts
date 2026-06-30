@@ -3,7 +3,7 @@ import { usePlayerController } from "@/core/player/PlayerController";
 import { useDownloadManager } from "@/core/resource/DownloadManager";
 import { useDataStore, useSettingStore, useShortcutStore, useStatusStore } from "@/stores";
 import { TASKBAR_IPC_CHANNELS } from "@/types/shared";
-import { isElectron, isMac } from "@/utils/env";
+import { isElectron, isMac, isSPlayerAndroid } from "@/utils/env";
 import { printVersion } from "@/utils/log";
 import { openUserAgreement } from "@/utils/modal";
 import { useEventListener } from "@vueuse/core";
@@ -41,10 +41,22 @@ export const useInit = () => {
     // 初始化 MediaSession
     mediaSessionManager.init();
     // 初始化播放器
-    player.playSong({
-      autoPlay: settingStore.autoPlay,
-      seek: settingStore.memoryLastSeek ? statusStore.currentTime : 0,
-    });
+    const restoreSeek = settingStore.memoryLastSeek ? statusStore.currentTime : 0;
+    const restoreSong = () => {
+      void player.playSong({
+        autoPlay: settingStore.autoPlay,
+        seek: restoreSeek,
+        startupRestore: isSPlayerAndroid,
+      });
+    };
+    if (isSPlayerAndroid && settingStore.autoPlay) {
+      const startupRequestToken = player.currentRequestToken;
+      setTimeout(() => {
+        if (player.currentRequestToken === startupRequestToken) restoreSong();
+      }, 1200);
+    } else {
+      restoreSong();
+    }
     // 同步播放模式
     player.playModeSyncIpc();
     // 初始化自动关闭定时器

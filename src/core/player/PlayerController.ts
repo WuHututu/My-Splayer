@@ -59,6 +59,10 @@ class PlayerController {
   private rateResetTimer: ReturnType<typeof setTimeout> | undefined;
   /** 速率渐变动画帧 */
   private rateRampFrame: number | undefined;
+  /** 启动恢复播放的卡死保护定时器 */
+  private startupRestoreWatchdog: ReturnType<typeof setTimeout> | undefined;
+  /** 启动恢复播放超过该时间仍无有效进展时重载一次 */
+  private readonly STARTUP_RESTORE_WATCHDOG_MS = 10000;
 
   constructor() {
     // 初始化 AudioManager（会根据设置自动选择引擎）
@@ -244,11 +248,73 @@ class PlayerController {
     lyricManager.handleLyric(song);
   }
 
+  /** 清理启动恢复播放的卡死保护 */
+  private clearStartupRestoreWatchdog() {
+    if (this.startupRestoreWatchdog) {
+      clearTimeout(this.startupRestoreWatchdog);
+      this.startupRestoreWatchdog = undefined;
+    }
+  }
+
+  /** 启动恢复上一首时，若 WebView 首次音频加载卡死，则重载当前歌曲一次 */
+  private armStartupRestoreWatchdog(
+    song: SongType,
+    requestToken: number,
+    autoPlay: boolean,
+    seek: number,
+    startupRetry: boolean,
+  ) {
+    this.clearStartupRestoreWatchdog();
+    const songSnapshot = { ...toRaw(song) } as SongType;
+    this.startupRestoreWatchdog = setTimeout(() => {
+      this.startupRestoreWatchdog = undefined;
+      void (async () => {
+        if (requestToken !== this.currentRequestToken) return;
+
+        const statusStore = useStatusStore();
+        const musicStore = useMusicStore();
+        const audioManager = useAudioManager();
+        if (!musicStore.playSong || musicStore.playSong.id !== songSnapshot.id) return;
+
+        const currentMs = Math.floor(Math.max(0, audioManager.currentTime || 0) * 1000);
+        const expectedMs = Math.max(0, seek || 0);
+        const hasUsableDuration = Number.isFinite(audioManager.duration) && audioManager.duration > 0;
+        const hasMoved = currentMs > expectedMs + 700 || currentMs > 700;
+        const isMakingProgress = autoPlay && !audioManager.paused && hasMoved;
+        const stuck =
+          !isMakingProgress &&
+          (statusStore.playLoading || !hasUsableDuration || (autoPlay && (audioManager.paused || !hasMoved)));
+
+        if (!stuck) return;
+
+        console.warn(`⚠️ [${songSnapshot.id}] 启动恢复播放超时，准备重载当前歌曲`);
+        if (!startupRetry) {
+          audioManager.stop();
+          statusStore.playLoading = true;
+          await sleep(500);
+          if (requestToken !== this.currentRequestToken) return;
+          await this.playSong({
+            autoPlay,
+            seek: expectedMs,
+            song: songSnapshot,
+            startupRestore: true,
+            startupRetry: true,
+          });
+          return;
+        }
+
+        statusStore.playLoading = false;
+        if (autoPlay) window.$message.warning("启动恢复播放超时，请重新点击播放");
+      })();
+    }, this.STARTUP_RESTORE_WATCHDOG_MS);
+  }
+
   /**
    * 初始化并播放歌曲
    * @param options 配置
    * @param options.autoPlay 是否自动播放
    * @param options.seek 初始播放进度（毫秒）
+   * @param options.startupRestore 是否为启动恢复上一首
    */
   public async playSong(
     options: {
@@ -257,10 +323,13 @@ class PlayerController {
       crossfade?: boolean;
       crossfadeDuration?: number;
       song?: SongType;
+      startupRestore?: boolean;
+      startupRetry?: boolean;
     } = { autoPlay: true, seek: 0 },
   ) {
     const statusStore = useStatusStore();
     const audioManager = useAudioManager();
+    this.clearStartupRestoreWatchdog();
     // 重置过渡状态
     this.isTransitioning = false;
     useAutomixManager().resetNextAnalysisCache();
@@ -269,7 +338,7 @@ class PlayerController {
     // 生成新的请求标识
     this.currentRequestToken++;
     const requestToken = this.currentRequestToken;
-    const { autoPlay = true, seek = 0 } = options;
+    const { autoPlay = true, seek = 0, startupRestore = false, startupRetry = false } = options;
     // 要播放的歌曲对象
     const playSongData = options.song || getPlaySongData();
     if (!playSongData) {
@@ -293,6 +362,9 @@ class PlayerController {
       }
       // 立即更新 UI（歌曲信息、封面、歌词等），无需等待网络请求
       this.setupSongUI(playSongData, seek);
+      if (startupRestore) {
+        this.armStartupRestoreWatchdog(playSongData, requestToken, autoPlay, seek, startupRetry);
+      }
       const { audioSource, analysis, analysisKind } = await this.prepareAudioSource(
         playSongData,
         requestToken,
@@ -338,6 +410,7 @@ class PlayerController {
       statusStore.playLoading = false;
     } catch (error) {
       if (requestToken === this.currentRequestToken) {
+        this.clearStartupRestoreWatchdog();
         console.error("❌ 播放初始化失败:", error);
         this.handlePlaybackError(undefined);
       }
@@ -669,6 +742,7 @@ class PlayerController {
 
     // 加载完成
     audioManager.addEventListener("canplay", () => {
+      this.clearStartupRestoreWatchdog();
       const playSongData = getPlaySongData();
       // 结束加载
       statusStore.playLoading = false;
@@ -807,6 +881,7 @@ class PlayerController {
     audioManager.addEventListener("timeupdate", this.onTimeUpdate);
     // 错误处理
     audioManager.addEventListener("error", (e) => {
+      this.clearStartupRestoreWatchdog();
       const errCode = e.detail.errorCode;
       this.handlePlaybackError(errCode, this.getSeek());
     });
