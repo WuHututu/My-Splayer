@@ -106,8 +106,33 @@ export class AudioElementPlayer extends BaseAudioPlayer {
    */
   public stop(): void {
     super.stop();
-    this.audioElement.removeAttribute("src");
-    this.audioElement.load();
+    this.unloadAudioElement();
+  }
+
+  /**
+   * 销毁 HTMLAudioElement，避免被切走的实例在后台继续播放
+   */
+  public override destroy(): void {
+    this.unloadAudioElement();
+    try {
+      this.sourceNode?.disconnect();
+    } catch {
+      // ignore
+    }
+    this.sourceNode = null;
+    super.destroy();
+  }
+
+  private unloadAudioElement(): void {
+    try {
+      this.audioElement.pause();
+      this.audioElement.removeAttribute("src");
+      this.audioElement.load();
+    } catch {
+      // ignore
+    }
+    this.isInternalSeeking = false;
+    this.targetSeekTime = 0;
   }
 
   /**

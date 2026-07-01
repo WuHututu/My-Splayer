@@ -133,6 +133,7 @@ export abstract class BaseAudioPlayer
    * 销毁引擎，释放资源
    */
   public destroy(): void {
+    this.cancelPendingPause();
     if (this.audioCtx) {
       // 共享 Context，不要关闭
       // this.audioCtx.close().catch(console.warn);

@@ -41,7 +41,10 @@ export const useInit = () => {
     // 初始化 MediaSession
     mediaSessionManager.init();
     // 初始化播放器
-    const restoreSeek = settingStore.memoryLastSeek ? statusStore.currentTime : 0;
+    const restoreSeek =
+      settingStore.memoryLastSeek && !(isSPlayerAndroid && settingStore.autoPlay)
+        ? statusStore.currentTime
+        : 0;
     const restoreSong = () => {
       void player.playSong({
         autoPlay: settingStore.autoPlay,

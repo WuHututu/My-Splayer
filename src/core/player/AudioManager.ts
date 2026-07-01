@@ -25,6 +25,11 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
   private pendingEngine: IPlaybackEngine | null = null;
   /** 切换引擎的定时器 */
   private pendingSwitchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Crossfade 后等待销毁的旧引擎 */
+  private retiringEngines: Array<{
+    engine: IPlaybackEngine;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
   /** 用于清理当前引擎的事件监听器 */
   private cleanupListeners: (() => void) | null = null;
   /** 是否正在进行 Crossfade (避免事件干扰) */
@@ -276,7 +281,11 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
       commitSwitch();
     }
     // 销毁旧引擎
-    setTimeout(() => oldEngine.destroy(), options.duration * 1000 + 1000);
+    const retireTimer = setTimeout(() => {
+      oldEngine.destroy();
+      this.retiringEngines = this.retiringEngines.filter(({ timer }) => timer !== retireTimer);
+    }, options.duration * 1000 + 1000);
+    this.retiringEngines.push({ engine: oldEngine, timer: retireTimer });
   }
 
   /**
@@ -306,11 +315,23 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
       clearTimeout(this.pendingSwitchTimer);
       this.pendingSwitchTimer = null;
     }
+    this.isCrossfading = false;
     this.engine.setHighPassFilter?.(0, 0);
     this.engine.setHighPassQ?.(0.707);
+    this.retiringEngines.forEach(({ engine, timer }) => {
+      clearTimeout(timer);
+      try {
+        engine.stop();
+        engine.destroy();
+      } catch {
+        // ignore
+      }
+    });
+    this.retiringEngines = [];
     if (this.pendingEngine) {
       // 如果有待切换引擎，销毁它
       try {
+        this.pendingEngine.stop();
         this.pendingEngine.destroy();
       } catch {
         // ignore
