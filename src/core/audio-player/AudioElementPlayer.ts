@@ -4,8 +4,47 @@ import {
   BaseAudioPlayer,
   type AudioEventType,
 } from "./BaseAudioPlayer";
-import type { EngineCapabilities } from "./IPlaybackEngine";
+import type { EngineCapabilities, PlayOptions } from "./IPlaybackEngine";
 import { useSettingStore } from "@/stores";
+const ANDROID_MEDIA_ELEMENTS_KEY = "__SPLAYER_ANDROID_MEDIA_ELEMENTS__" as const;
+
+type AudioRegistryWindow = Window & {
+  [ANDROID_MEDIA_ELEMENTS_KEY]?: HTMLMediaElement[];
+};
+
+const getTrackedAudioElements = (): HTMLMediaElement[] => {
+  if (typeof window === "undefined") return [];
+  const win = window as AudioRegistryWindow;
+  if (!Array.isArray(win[ANDROID_MEDIA_ELEMENTS_KEY])) {
+    win[ANDROID_MEDIA_ELEMENTS_KEY] = [];
+  }
+  return win[ANDROID_MEDIA_ELEMENTS_KEY];
+};
+
+const registerAudioElement = (element: HTMLMediaElement) => {
+  const registry = getTrackedAudioElements();
+  if (!registry.includes(element)) registry.push(element);
+};
+
+const unregisterAudioElement = (element: HTMLMediaElement) => {
+  const registry = getTrackedAudioElements();
+  const index = registry.indexOf(element);
+  if (index >= 0) registry.splice(index, 1);
+};
+
+const unloadOtherAudioElements = (current: HTMLMediaElement) => {
+  getTrackedAudioElements()
+    .filter((element) => element !== current)
+    .forEach((element) => {
+      try {
+        element.pause();
+        element.removeAttribute("src");
+        element.load();
+      } catch {
+        // ignore
+      }
+    });
+};
 
 /**
  * 基于 HTMLAudioElement 的播放器实现
@@ -35,6 +74,7 @@ export class AudioElementPlayer extends BaseAudioPlayer {
   constructor() {
     super();
     this.audioElement = new Audio();
+    registerAudioElement(this.audioElement);
     this.audioElement.crossOrigin = "anonymous";
     this.bindInternalEvents();
 
@@ -62,6 +102,13 @@ export class AudioElementPlayer extends BaseAudioPlayer {
     } catch (error) {
       console.error("[AudioElementPlayer] SourceNode 创建失败", error);
     }
+  }
+
+  public override async play(url?: string, options: PlayOptions = {}): Promise<void> {
+    if (!options.allowParallelPlayback) {
+      unloadOtherAudioElements(this.audioElement);
+    }
+    await super.play(url, options);
   }
 
   /**

@@ -201,6 +201,7 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
       autoPlay: true,
       seek: options.seek,
       fadeIn: false,
+      allowParallelPlayback: true,
     });
     // 新引擎逐渐增加音量
     if (newEngine.rampVolumeTo) {

@@ -44,6 +44,8 @@ export interface PlayOptions {
   fadeCurve?: FadeCurve;
   /** 初始播放位置（秒） */
   seek?: number;
+  /** 是否允许多个 SPlayer 音频实例短暂并行播放（仅用于 Crossfade/Automix） */
+  allowParallelPlayback?: boolean;
 }
 
 /**
